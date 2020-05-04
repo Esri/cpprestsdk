@@ -97,10 +97,12 @@
 #include "cpprest/details/web_utilities.h"
 
 // http
-//#include "cpprest/details/http_helpers.h"
-//#include "cpprest/http_client.h"
-//#include "cpprest/http_headers.h"
-//#include "cpprest/http_msg.h"
+#if defined(RTC_WINDOWS_FAMILY) || defined(RTC_LINUX_FAMILY)
+#include "cpprest/details/http_helpers.h"
+#include "cpprest/http_client.h"
+#include "cpprest/http_headers.h"
+#include "cpprest/http_msg.h"
+#endif
 
 // oauth
 #if !defined(_WIN32) || _WIN32_WINNT >= _WIN32_WINNT_VISTA

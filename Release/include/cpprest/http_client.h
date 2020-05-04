@@ -60,16 +60,13 @@ typedef void* native_handle;
 
 #include "cpprest/oauth2.h"
 
-#if !defined(_WIN32) && !defined(__cplusplus_winrt) || defined(CPPREST_FORCE_HTTP_CLIENT_ASIO)
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wconversion"
-#endif
-#include "boost/asio/ssl.hpp"
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
-#endif
+namespace boost {
+namespace asio {
+namespace ssl {
+class context;
+} // namespace ssl
+} // namespace asio
+} // namespace boost
 
 /// The web namespace contains functionality common to multiple protocols like HTTP and WebSockets.
 namespace web

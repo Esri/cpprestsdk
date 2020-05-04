@@ -22,6 +22,8 @@ project "cpprest"
   defines {
     "_NO_PPLXIMP", -- prevent building a dynamic library
     "_NO_ASYNCRTIMP",
+    "CPPREST_EXCLUDE_BROTLI",
+    "CPPREST_EXCLUDE_WEBSOCKETS",
   }
 
   files {
@@ -37,6 +39,22 @@ project "cpprest"
     "Release/src/pch",
     "Release/include",
     "../boost",
+    "../zlib",
+  }
+
+  local t_httpfiles = {
+    "Release/src/http/client/http_client.cpp",
+    "Release/src/http/client/http_client_msg.cpp",
+    "Release/src/http/common/http_compression.cpp",
+    "Release/src/http/common/http_helpers.cpp",
+    "Release/src/http/common/http_msg.cpp",
+    "Release/src/http/oauth/oauth1.cpp",
+    "Release/src/http/oauth/oauth2.cpp",
+    "Release/src/json/json.cpp",
+    "Release/src/json/json_parsing.cpp",
+    "Release/src/json/json_serialization.cpp",
+    "Release/src/utilities/base64.cpp",
+    "Release/src/utilities/web_utilities.cpp",
   }
 
   -- -------------------------------------------------------------
@@ -61,6 +79,8 @@ project "cpprest"
       }
 
       files {
+        t_httpfiles,
+        "Release/src/http/client/http_client_winhttp.cpp",
         "Release/src/pplx/pplxwin.cpp",
       }
 
@@ -132,8 +152,20 @@ project "cpprest"
 
     configuration { "linux" }
 
+      defines {
+        "BOOST_DISABLE_OPENSSL_INIT",
+      }
+
       files {
+        t_httpfiles,
+        "Release/src/http/client/http_client_asio.cpp",
+        "Release/src/http/client/x509_cert_utilities.cpp",
         "Release/src/pplx/pplxlinux.cpp",
+        "Release/src/pplx/threadpool.cpp",
+      }
+
+      includedirs {
+        "../openssl/include",
       }
 
     -- -------------------------------------------------------------
@@ -312,8 +344,20 @@ project "cpprest"
 
     configuration { "android*" }
 
+      defines {
+        "BOOST_DISABLE_OPENSSL_INIT",
+      }
+
       files {
+        t_httpfiles,
+        "Release/src/http/client/http_client_asio.cpp",
+        "Release/src/http/client/x509_cert_utilities.cpp",
         "Release/src/pplx/pplxlinux.cpp",
+        "Release/src/pplx/threadpool.cpp",
+      }
+
+      includedirs {
+        "../openssl/include",
       }
 
     -- -------------------------------------------------------------
@@ -433,6 +477,8 @@ project "cpprest"
       }
 
       files {
+        t_httpfiles,
+        "Release/src/http/client/http_client_winrt.cpp",
         "Release/src/pplx/pplxwin.cpp",
       }
 
