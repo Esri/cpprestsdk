@@ -1131,15 +1131,6 @@ namespace details
     return task<void>(op);
   }
 #endif  /* defined (__cplusplus_winrt) */
-
-  void _JoinAllTokens_Add(const cancellation_token_source& _MergedSrc, _CancellationTokenState *_PJoinedTokenState)
-  {
-    if (_PJoinedTokenState != nullptr && _PJoinedTokenState != _CancellationTokenState::_None())
-    {
-      cancellation_token _T = cancellation_token::_FromImpl(_PJoinedTokenState);
-      _T.register_callback([=]() { _MergedSrc.cancel(); });
-    }
-  }
 } // namespace details
 
 task_continuation_context task_continuation_context::use_default()

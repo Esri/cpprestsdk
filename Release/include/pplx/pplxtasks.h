@@ -73,6 +73,7 @@ void cpprest_init(JavaVM*);
 #endif /* defined(_MSC_VER) */
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <exception>
 #include <functional>
@@ -5603,11 +5604,11 @@ template<typename _Function>
     template<typename _Type>
     struct _RunAllParam
     {
-        _RunAllParam() : _M_completeCount(0), _M_numTasks(0) {}
+        _RunAllParam() : _M_remainingTasks(0) {}
 
         void _Resize(size_t _Len, bool _SkipVector = false)
         {
-            _M_numTasks = _Len;
+            _M_remainingTasks = _Len;
             if (!_SkipVector)
             {
                 _M_vector._Result.resize(_Len);
@@ -5617,18 +5618,17 @@ template<typename _Function>
         task_completion_event<_Unit_type> _M_completed;
         _ResultHolder<std::vector<_Type>> _M_vector;
         _ResultHolder<_Type> _M_mergeVal;
-        atomic_size_t _M_completeCount;
-        size_t _M_numTasks;
+        atomic_size_t _M_remainingTasks;
     };
 
     template<typename _Type>
     struct _RunAllParam<std::vector<_Type>>
     {
-        _RunAllParam() : _M_completeCount(0), _M_numTasks(0) {}
+        _RunAllParam() : _M_remainingTasks(0) {}
 
         void _Resize(size_t _Len, bool _SkipVector = false)
         {
-            _M_numTasks = _Len;
+            _M_remainingTasks = _Len;
 
             if (!_SkipVector)
             {
@@ -5638,25 +5638,20 @@ template<typename _Function>
 
         task_completion_event<_Unit_type> _M_completed;
         std::vector<_ResultHolder<std::vector<_Type>>> _M_vector;
-        atomic_size_t _M_completeCount;
-        size_t _M_numTasks;
+        atomic_size_t _M_remainingTasks;
     };
 
     // Helper struct specialization for void
     template<>
     struct _RunAllParam<_Unit_type>
     {
-        _RunAllParam() : _M_completeCount(0), _M_numTasks(0) {}
+        _RunAllParam() : _M_remainingTasks(0) {}
 
-        void _Resize(size_t _Len) { _M_numTasks = _Len; }
+        void _Resize(size_t _Len) { _M_remainingTasks = _Len; }
 
         task_completion_event<_Unit_type> _M_completed;
-        atomic_size_t _M_completeCount;
-        size_t _M_numTasks;
+        atomic_size_t _M_remainingTasks;
     };
-
-    void _JoinAllTokens_Add(const cancellation_token_source& _MergedSrc,
-      _CancellationTokenState* _PJoinedTokenState);
 
     template<typename _ElementType, typename _Function, typename _TaskType>
     void _WhenAllContinuationWrapper(_RunAllParam<_ElementType> * _PParam, _Function _Func, task<_TaskType> & _Task)
@@ -5664,7 +5659,7 @@ template<typename _Function>
         if (_Task._GetImpl()->_IsCompleted())
         {
             _Func();
-            if (atomic_increment(_PParam->_M_completeCount) == _PParam->_M_numTasks)
+            if (atomic_decrement(_PParam->_M_remainingTasks) == 0)
             {
                 // Inline execute its direct continuation, the _ReturnTask
                 _PParam->_M_completed.set(_Unit_type());
@@ -5685,7 +5680,7 @@ template<typename _Function>
                 _PParam->_M_completed._Cancel();
             }
 
-            if (atomic_increment(_PParam->_M_completeCount) == _PParam->_M_numTasks)
+            if (atomic_decrement(_PParam->_M_remainingTasks) == 0)
             {
                 delete _PParam;
             }
@@ -5699,24 +5694,13 @@ template<typename _Function>
                                                         _Iterator _Begin,
                                                         _Iterator _End)
         {
-            _CancellationTokenState* _PTokenState =
-                _TaskOptions.has_cancellation_token() ? _TaskOptions.get_cancellation_token()._GetImplValue() : nullptr;
-
             auto _PParam = new _RunAllParam<_ElementType>();
-            cancellation_token_source _MergedSource;
+            std::vector<cancellation_token> tokens;
 
-            // Step1: Create task completion event.
-            task_options _Options(_TaskOptions);
-            _Options.set_cancellation_token(_MergedSource.get_token());
-            task<_Unit_type> _All_tasks_completed(_PParam->_M_completed, _Options);
-            // The return task must be created before step 3 to enforce inline execution.
-            auto _ReturnTask = _All_tasks_completed._Then(
-                [=](_Unit_type) -> std::vector<_ElementType> { return _PParam->_M_vector.Get(); }, nullptr);
-
-            // Step2: Combine and check tokens, and count elements in range.
-            if (_PTokenState)
+            // Step1: Retrieve and combine tokens, and count elements in range.
+            if (_TaskOptions.has_cancellation_token())
             {
-                _JoinAllTokens_Add(_MergedSource, _PTokenState);
+                tokens.emplace_back(_TaskOptions.get_cancellation_token());
                 _PParam->_Resize(static_cast<size_t>(std::distance(_Begin, _End)));
             }
             else
@@ -5725,10 +5709,21 @@ template<typename _Function>
                 for (auto _PTask = _Begin; _PTask != _End; ++_PTask)
                 {
                     _TaskNum++;
-                    _JoinAllTokens_Add(_MergedSource, _PTask->_GetImpl()->_M_pTokenState);
+                    tokens.emplace_back(cancellation_token::_FromImpl(_PTask->_GetImpl()->_M_pTokenState));
                 }
                 _PParam->_Resize(_TaskNum);
             }
+            cancellation_token_source _MergedSource =
+                cancellation_token_source::create_linked_source(std::begin(tokens), std::end(tokens));
+
+            // Step2: Create task completion event.
+            task_options _Options(_TaskOptions);
+            _Options.set_cancellation_token(_MergedSource.get_token());
+            task<_Unit_type> _All_tasks_completed(_PParam->_M_completed, _Options);
+            // The return task must be created before step 3 to enforce inline execution.
+            auto _ReturnTask = _All_tasks_completed._Then(
+                [=](_Unit_type) -> std::vector<_ElementType> { return _PParam->_M_vector.Get(); }, nullptr);
+
 
             // Step3: Check states of previous tasks.
             if (_Begin == _End)
@@ -5773,34 +5768,13 @@ template<typename _Function>
                                                         _Iterator _Begin,
                                                         _Iterator _End)
         {
-            _CancellationTokenState* _PTokenState =
-                _TaskOptions.has_cancellation_token() ? _TaskOptions.get_cancellation_token()._GetImplValue() : nullptr;
-
             auto _PParam = new _RunAllParam<std::vector<_ElementType>>();
-            cancellation_token_source _MergedSource;
+            std::vector<cancellation_token> tokens;
 
-            // Step1: Create task completion event.
-            task_options _Options(_TaskOptions);
-            _Options.set_cancellation_token(_MergedSource.get_token());
-            task<_Unit_type> _All_tasks_completed(_PParam->_M_completed, _Options);
-            // The return task must be created before step 3 to enforce inline execution.
-            auto _ReturnTask = _All_tasks_completed._Then(
-                [=](_Unit_type) -> std::vector<_ElementType> {
-                    _ASSERTE(_PParam->_M_completeCount == _PParam->_M_numTasks);
-                    std::vector<_ElementType> _Result;
-                    for (size_t _I = 0; _I < _PParam->_M_numTasks; _I++)
-                    {
-                        const std::vector<_ElementType>& _Vec = _PParam->_M_vector[_I].Get();
-                        _Result.insert(_Result.end(), _Vec.begin(), _Vec.end());
-                    }
-                    return _Result;
-                },
-                nullptr);
-
-            // Step2: Combine and check tokens, and count elements in range.
-            if (_PTokenState)
+            // Step1: Retrieve and combine tokens, and count elements in range.
+            if (_TaskOptions.has_cancellation_token())
             {
-                _JoinAllTokens_Add(_MergedSource, _PTokenState);
+                tokens.emplace_back(_TaskOptions.get_cancellation_token());
                 _PParam->_Resize(static_cast<size_t>(std::distance(_Begin, _End)));
             }
             else
@@ -5809,10 +5783,32 @@ template<typename _Function>
                 for (auto _PTask = _Begin; _PTask != _End; ++_PTask)
                 {
                     _TaskNum++;
-                    _JoinAllTokens_Add(_MergedSource, _PTask->_GetImpl()->_M_pTokenState);
+                    tokens.emplace_back(cancellation_token::_FromImpl(_PTask->_GetImpl()->_M_pTokenState));
                 }
                 _PParam->_Resize(_TaskNum);
             }
+
+            cancellation_token_source _MergedSource =
+                cancellation_token_source::create_linked_source(std::begin(tokens), std::end(tokens));
+
+            // Step2: Create task completion event.
+            task_options _Options(_TaskOptions);
+            _Options.set_cancellation_token(_MergedSource.get_token());
+            task<_Unit_type> _All_tasks_completed(_PParam->_M_completed, _Options);
+            // The return task must be created before step 3 to enforce inline execution.
+            auto _ReturnTask = _All_tasks_completed._Then(
+                [=](_Unit_type) -> std::vector<_ElementType> {
+                    _ASSERTE(_PParam->_M_remainingTasks == 0);
+                    std::vector<_ElementType> _Result;
+                    for (size_t _I = 0; _I < _PParam->_M_vector.size(); _I++)
+                    {
+                        const std::vector<_ElementType>& _Vec = _PParam->_M_vector[_I].Get();
+                        _Result.insert(_Result.end(), _Vec.begin(), _Vec.end());
+                    }
+                    return _Result;
+                },
+                nullptr);
+
 
             // Step3: Check states of previous tasks.
             if (_Begin == _End)
@@ -5855,23 +5851,13 @@ template<typename _Function>
     {
         static task<void> _Perform(const task_options& _TaskOptions, _Iterator _Begin, _Iterator _End)
         {
-            _CancellationTokenState* _PTokenState =
-                _TaskOptions.has_cancellation_token() ? _TaskOptions.get_cancellation_token()._GetImplValue() : nullptr;
-
             auto _PParam = new _RunAllParam<_Unit_type>();
-            cancellation_token_source _MergedSource;
+            std::vector<cancellation_token> tokens;
 
-            // Step1: Create task completion event.
-            task_options _Options(_TaskOptions);
-            _Options.set_cancellation_token(_MergedSource.get_token());
-            task<_Unit_type> _All_tasks_completed(_PParam->_M_completed, _Options);
-            // The return task must be created before step 3 to enforce inline execution.
-            auto _ReturnTask = _All_tasks_completed._Then([=](_Unit_type) {}, nullptr);
-
-            // Step2: Combine and check tokens, and count elements in range.
-            if (_PTokenState)
+            // Step1: Retrieve and combine tokens, and count elements in range.
+            if (_TaskOptions.has_cancellation_token())
             {
-                _JoinAllTokens_Add(_MergedSource, _PTokenState);
+                tokens.emplace_back(_TaskOptions.get_cancellation_token());
                 _PParam->_Resize(static_cast<size_t>(std::distance(_Begin, _End)));
             }
             else
@@ -5880,10 +5866,20 @@ template<typename _Function>
                 for (auto _PTask = _Begin; _PTask != _End; ++_PTask)
                 {
                     _TaskNum++;
-                    _JoinAllTokens_Add(_MergedSource, _PTask->_GetImpl()->_M_pTokenState);
+                    tokens.emplace_back(cancellation_token::_FromImpl(_PTask->_GetImpl()->_M_pTokenState));
                 }
                 _PParam->_Resize(_TaskNum);
             }
+
+            cancellation_token_source _MergedSource =
+                cancellation_token_source::create_linked_source(std::begin(tokens), std::end(tokens));
+
+            // Step2: Create task completion event.
+            task_options _Options(_TaskOptions);
+            _Options.set_cancellation_token(_MergedSource.get_token());
+            task<_Unit_type> _All_tasks_completed(_PParam->_M_completed, _Options);
+            // The return task must be created before step 3 to enforce inline execution.
+            auto _ReturnTask = _All_tasks_completed._Then([=](_Unit_type) {}, nullptr);
 
             // Step3: Check states of previous tasks.
             if (_Begin == _End)
@@ -5918,14 +5914,19 @@ template<typename _Function>
         const task<std::vector<_ReturnType>>& _VectorTask, const task<_ReturnType>& _ValueTask, bool _OutputVectorFirst)
     {
         auto _PParam = new _RunAllParam<_ReturnType>();
-        cancellation_token_source _MergedSource;
 
-        // Step1: Create task completion event.
+        // Step1: Retrieve and combine tokens
+        std::array<cancellation_token, 2> tokens {cancellation_token::_FromImpl(_VectorTask._GetImpl()->_M_pTokenState),
+                                                  cancellation_token::_FromImpl(_ValueTask._GetImpl()->_M_pTokenState)};
+        cancellation_token_source _MergedSource =
+            cancellation_token_source::create_linked_source(std::begin(tokens), std::end(tokens));
+
+        // Step2: Create task completion event.
         task<_Unit_type> _All_tasks_completed(_PParam->_M_completed, _MergedSource.get_token());
         // The return task must be created before step 3 to enforce inline execution.
         auto _ReturnTask = _All_tasks_completed._Then(
             [=](_Unit_type) -> std::vector<_ReturnType> {
-                _ASSERTE(_PParam->_M_completeCount == 2);
+                _ASSERTE(_PParam->_M_remainingTasks == 0);
                 auto _Result = _PParam->_M_vector.Get(); // copy by value
                 auto _mergeVal = _PParam->_M_mergeVal.Get();
 
@@ -5940,10 +5941,6 @@ template<typename _Function>
                 return _Result;
             },
             nullptr);
-
-        // Step2: Combine and check tokens.
-        _JoinAllTokens_Add(_MergedSource, _VectorTask._GetImpl()->_M_pTokenState);
-        _JoinAllTokens_Add(_MergedSource, _ValueTask._GetImpl()->_M_pTokenState);
 
         // Step3: Check states of previous tasks.
         _PParam->_Resize(2, true);
@@ -6160,9 +6157,7 @@ namespace details
 template<typename _CompletionType>
 struct _RunAnyParam
 {
-    _RunAnyParam() : _M_exceptionRelatedToken(nullptr), _M_completeCount(0), _M_numTasks(0), _M_fHasExplicitToken(false)
-    {
-    }
+    _RunAnyParam() : _M_exceptionRelatedToken(nullptr), _M_remainingTasks(0), _M_fHasExplicitToken(false) {}
     ~_RunAnyParam()
     {
         if (_CancellationTokenState::_IsValid(_M_exceptionRelatedToken)) _M_exceptionRelatedToken->_Release();
@@ -6170,8 +6165,7 @@ struct _RunAnyParam
     task_completion_event<_CompletionType> _M_Completed;
     cancellation_token_source _M_cancellationSource;
     _CancellationTokenState* _M_exceptionRelatedToken;
-    atomic_size_t _M_completeCount;
-    size_t _M_numTasks;
+    atomic_size_t _M_remainingTasks;
     bool _M_fHasExplicitToken;
 };
 
@@ -6184,7 +6178,7 @@ void _WhenAnyContinuationWrapper(_RunAnyParam<_CompletionType>* _PParam, const _
     if (_Task._GetImpl()->_IsCompleted() && !_IsTokenCancled)
     {
         _Func();
-        if (atomic_increment(_PParam->_M_completeCount) == _PParam->_M_numTasks)
+        if (atomic_decrement(_PParam->_M_remainingTasks) == 0)
         {
             delete _PParam;
         }
@@ -6207,7 +6201,7 @@ void _WhenAnyContinuationWrapper(_RunAnyParam<_CompletionType>* _PParam, const _
             }
         }
 
-        if (atomic_increment(_PParam->_M_completeCount) == _PParam->_M_numTasks)
+        if (atomic_decrement(_PParam->_M_remainingTasks) == 0)
         {
             // If no one has be completed so far, we need to make some final cancellation decision.
             if (!_PParam->_M_Completed._IsTriggered())
@@ -6217,16 +6211,22 @@ void _WhenAnyContinuationWrapper(_RunAnyParam<_CompletionType>* _PParam, const _
                 {
                     if (_PParam->_M_exceptionRelatedToken)
                     {
-                        _JoinAllTokens_Add(_PParam->_M_cancellationSource, _PParam->_M_exceptionRelatedToken);
+                        _PParam->_M_cancellationSource =
+                            cancellation_token_source::create_linked_source(
+                                cancellation_token::_FromImpl(_PParam->_M_exceptionRelatedToken));
                     }
                     else
                     {
-                        // If haven't captured any exception token yet, there was no exception for all those tasks,
-                        // so just pick a random token (current one) for normal cancellation.
-                        _JoinAllTokens_Add(_PParam->_M_cancellationSource, _Task._GetImpl()->_M_pTokenState);
+                        // If haven't captured any exception token yet, there was no exception for
+                        // all those tasks, so just pick a random token (current one) for normal
+                        // cancellation.
+                        _PParam->_M_cancellationSource =
+                            cancellation_token_source::create_linked_source(
+                                cancellation_token::_FromImpl(_Task._GetImpl()->_M_pTokenState));
                     }
                 }
-                // Do exception cancellation or normal cancellation based on whether it has stored exception.
+                // Do exception cancellation or normal cancellation based on whether it has stored
+                // exception.
                 _PParam->_M_Completed._Cancel();
             }
             delete _PParam;
@@ -6245,13 +6245,14 @@ struct _WhenAnyImpl
         {
             throw invalid_operation("when_any(begin, end) cannot be called on an empty container.");
         }
-        _CancellationTokenState* _PTokenState =
-            _TaskOptions.has_cancellation_token() ? _TaskOptions.get_cancellation_token()._GetImplValue() : nullptr;
+
         auto _PParam = new _RunAnyParam<std::pair<std::pair<_ElementType, size_t>, _CancellationTokenState*>>();
 
-        if (_PTokenState)
+        if (_TaskOptions.has_cancellation_token())
         {
-            _JoinAllTokens_Add(_PParam->_M_cancellationSource, _PTokenState);
+            auto token = _TaskOptions.get_cancellation_token();
+            _PParam->_M_cancellationSource =
+                cancellation_token_source::create_linked_source(token);
             _PParam->_M_fHasExplicitToken = true;
         }
 
@@ -6263,7 +6264,7 @@ struct _WhenAnyImpl
         // Keep a copy ref to the token source
         auto _CancellationSource = _PParam->_M_cancellationSource;
 
-        _PParam->_M_numTasks = static_cast<size_t>(std::distance(_Begin, _End));
+        _PParam->_M_remainingTasks = static_cast<size_t>(std::distance(_Begin, _End));
         size_t _Index = 0;
         for (auto _PTask = _Begin; _PTask != _End; ++_PTask)
         {
@@ -6294,9 +6295,10 @@ struct _WhenAnyImpl
             [=](std::pair<std::pair<_ElementType, size_t>, _CancellationTokenState*> _Result)
                 -> std::pair<_ElementType, size_t> {
                 _ASSERTE(_Result.second);
-                if (!_PTokenState)
+                if (!_TaskOptions.has_cancellation_token())
                 {
-                    _JoinAllTokens_Add(_CancellationSource, _Result.second);
+                    _CancellationSource = cancellation_token_source::create_linked_source(
+                        cancellation_token::_FromImpl(_Result.second));
                 }
                 return _Result.first;
             },
@@ -6314,13 +6316,13 @@ struct _WhenAnyImpl<void, _Iterator>
             throw invalid_operation("when_any(begin, end) cannot be called on an empty container.");
         }
 
-        _CancellationTokenState* _PTokenState =
-            _TaskOptions.has_cancellation_token() ? _TaskOptions.get_cancellation_token()._GetImplValue() : nullptr;
         auto _PParam = new _RunAnyParam<std::pair<size_t, _CancellationTokenState*>>();
 
-        if (_PTokenState)
+        if (_TaskOptions.has_cancellation_token())
         {
-            _JoinAllTokens_Add(_PParam->_M_cancellationSource, _PTokenState);
+            auto token = _TaskOptions.get_cancellation_token();
+            _PParam->_M_cancellationSource =
+                cancellation_token_source::create_linked_source(token);
             _PParam->_M_fHasExplicitToken = true;
         }
 
@@ -6331,7 +6333,7 @@ struct _WhenAnyImpl<void, _Iterator>
         // Keep a copy ref to the token source
         auto _CancellationSource = _PParam->_M_cancellationSource;
 
-        _PParam->_M_numTasks = static_cast<size_t>(std::distance(_Begin, _End));
+        _PParam->_M_remainingTasks = static_cast<size_t>(std::distance(_Begin, _End));
         size_t _Index = 0;
         for (auto _PTask = _Begin; _PTask != _End; ++_PTask)
         {
@@ -6357,11 +6359,12 @@ struct _WhenAnyImpl<void, _Iterator>
 
         // All _Any_tasks_completed._SetAsync() must be finished before this return continuation task being created.
         return _Any_tasks_completed._Then(
-            [=](std::pair<size_t, _CancellationTokenState*> _Result) -> size_t {
+            [=](std::pair<size_t, _CancellationTokenState*> _Result) mutable -> size_t {
                 _ASSERTE(_Result.second);
-                if (!_PTokenState)
+                if (!_TaskOptions.has_cancellation_token())
                 {
-                    _JoinAllTokens_Add(_CancellationSource, _Result.second);
+                    auto token = cancellation_token::_FromImpl(_Result.second);
+                    _CancellationSource = cancellation_token_source::create_linked_source(token);
                 }
                 return _Result.first;
             },
@@ -6476,8 +6479,8 @@ task<_ReturnType> operator||(const task<_ReturnType>& _Lhs, const task<_ReturnTy
     auto _ReturnTask = _Any_tasks_completed._Then(
         [=](std::pair<_ReturnType, size_t> _Ret) -> _ReturnType {
             _ASSERTE(_Ret.second);
-            _JoinAllTokens_Add(_PParam->_M_cancellationSource,
-                               reinterpret_cast<details::_CancellationTokenState*>(_Ret.second));
+            auto token = cancellation_token::_FromImpl(reinterpret_cast<details::_CancellationTokenState*>(_Ret.second));
+            _PParam->_M_cancellationSource = cancellation_token_source::create_linked_source(token);
             return _Ret.first;
         },
         nullptr);
@@ -6487,7 +6490,7 @@ task<_ReturnType> operator||(const task<_ReturnType>& _Lhs, const task<_ReturnTy
         _ReturnTask._SetAsync();
     }
 
-    _PParam->_M_numTasks = 2;
+    _PParam->_M_remainingTasks = 2;
     auto _Continuation = [_PParam](task<_ReturnType> _ResultTask) {
         //  Dev10 compiler bug
         auto _PParamCopy = _PParam;
@@ -6546,7 +6549,8 @@ task<std::vector<_ReturnType>> operator||(const task<std::vector<_ReturnType>>& 
     auto _ReturnTask = _Any_tasks_completed._Then(
         [=](std::pair<std::vector<_ReturnType>, details::_CancellationTokenState*> _Ret) -> std::vector<_ReturnType> {
             _ASSERTE(_Ret.second);
-            _JoinAllTokens_Add(_PParam->_M_cancellationSource, _Ret.second);
+            _PParam->_M_cancellationSource =
+                cancellation_token_source::create_linked_source(cancellation_token::_FromImpl(_Ret.second));
             return _Ret.first;
         },
         nullptr);
@@ -6556,7 +6560,7 @@ task<std::vector<_ReturnType>> operator||(const task<std::vector<_ReturnType>>& 
         _ReturnTask._SetAsync();
     }
 
-    _PParam->_M_numTasks = 2;
+    _PParam->_M_remainingTasks = 2;
     _Lhs._Then(
         [_PParam](task<std::vector<_ReturnType>> _ResultTask) {
             //  Dev10 compiler bug
@@ -6662,7 +6666,8 @@ _Ty operator||(const task<void>& _Lhs_arg, const task<void>& _Rhs_arg)
     auto _ReturnTask = _Any_task_completed._Then(
         [=](_Pair _Ret) {
             _ASSERTE(_Ret.second);
-            details::_JoinAllTokens_Add(_PParam->_M_cancellationSource, _Ret.second);
+            _PParam->_M_cancellationSource =
+                cancellation_token_source::create_linked_source(cancellation_token::_FromImpl(_Ret.second));
         },
         nullptr);
 
@@ -6671,7 +6676,7 @@ _Ty operator||(const task<void>& _Lhs_arg, const task<void>& _Rhs_arg)
         _ReturnTask._SetAsync();
     }
 
-    _PParam->_M_numTasks = 2;
+    _PParam->_M_remainingTasks = 2;
     auto _Continuation = [_PParam](_Ty _ResultTask) mutable {
         //  Dev10 compiler needs this.
         auto _PParam1 = _PParam;
