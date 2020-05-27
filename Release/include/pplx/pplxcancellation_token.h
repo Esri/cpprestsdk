@@ -385,9 +385,6 @@ public:
             }
 
             rundownList.for_each([](_CancellationTokenRegistration* pRegistration) { pRegistration->_Invoke(); });
-
-            _M_stateFlag = 2;
-            _M_cancelComplete.set();
         }
     }
 
@@ -509,9 +506,6 @@ public:
 private:
     // The flag for the token state (whether it is canceled or not)
     atomic_long _M_stateFlag;
-
-    // Notification of completion of cancellation of this token.
-    extensibility::event_t _M_cancelComplete; // Hmm.. where do we wait for it??
 
     // Lock to protect the registrations list
     extensibility::critical_section_t _M_listLock;
