@@ -152,10 +152,6 @@ project "cpprest"
 
     configuration { "linux" }
 
-      defines {
-        "BOOST_DISABLE_OPENSSL_INIT",
-      }
-
       files {
         t_httpfiles,
         "Release/src/http/client/http_client_asio.cpp",
@@ -343,10 +339,6 @@ project "cpprest"
     -- project specific configuration settings
 
     configuration { "android*" }
-
-      defines {
-        "BOOST_DISABLE_OPENSSL_INIT",
-      }
 
       files {
         t_httpfiles,
