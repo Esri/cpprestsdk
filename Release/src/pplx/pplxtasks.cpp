@@ -79,9 +79,9 @@ namespace details
     delete _M_pThunk;
   }
 
-  void _ScheduleFuncWithAutoInline(const std::function<void()> & _Func, _TaskInliningMode_t _InliningMode)
+  void _ScheduleFuncWithAutoInline(const std::function<void()> & _Func, _TaskInliningMode_t _InliningMode, scheduler_ptr _Scheduler)
   {
-    _TaskCollection_t::_RunTask(&_TaskProcThunk::_Bridge, new _TaskProcThunk(_Func), _InliningMode);
+    _TaskCollection_t::_RunTask(&_TaskProcThunk::_Bridge, new _TaskProcThunk(_Func), _InliningMode, _Scheduler);
   }
 
 #if defined (__cplusplus_winrt)
@@ -965,7 +965,8 @@ namespace details
           }
           }
         },
-        _PTaskHandle->_M_inliningMode);
+        _PTaskHandle->_M_inliningMode,
+        _M_TaskCollection._GetScheduler());
       }
     else
     {

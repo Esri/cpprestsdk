@@ -603,7 +603,10 @@ private:
 /// <param name="_InliningMode">
 ///     The inlining scheduling policy for current functor.
 /// </param>
-void _ScheduleFuncWithAutoInline(const std::function<void()>& _Func, _TaskInliningMode_t _InliningMode);
+/// <param name="_Scheduler">
+///     The intended Scheduler to run the task on.
+/// </param>
+void _ScheduleFuncWithAutoInline(const std::function<void()>& _Func, _TaskInliningMode_t _InliningMode, scheduler_ptr _Scheduler);
 
 class _ContextCallback
 {
@@ -1671,7 +1674,7 @@ struct _Task_impl : public _Task_impl_base
             if (_M_Continuations)
             {
                 // Scheduling cancellation with automatic inlining.
-                _ScheduleFuncWithAutoInline([=]() { _RunTaskContinuations(); }, details::_DefaultAutoInline);
+                _ScheduleFuncWithAutoInline([=]() { _RunTaskContinuations(); }, details::_DefaultAutoInline, _M_TaskCollection._GetScheduler());
             }
         }
         return true;
