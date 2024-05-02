@@ -94,7 +94,8 @@ if (_PLATFORM_WINDOWS) then
 
   files {
     t_httpfiles,
-    "Release/src/http/client/http_client_winhttp.cpp",
+    --"Release/src/http/client/http_client_winhttp.cpp",
+    "Release/src/http/client/http_client_winrt.cpp",
     "Release/src/pplx/pplxwin.cpp",
   }
 end

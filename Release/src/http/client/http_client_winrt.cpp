@@ -24,7 +24,7 @@
 #include <msxml6.h>
 #include <wrl.h>
 using namespace std;
-using namespace Platform;
+//using namespace Platform;
 using namespace Microsoft::WRL;
 
 namespace web
