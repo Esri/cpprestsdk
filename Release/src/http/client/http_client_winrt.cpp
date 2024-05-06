@@ -425,9 +425,7 @@ protected:
         utility::string_t encoded_resource = http::uri_builder(m_uri).append(msg.relative_uri()).to_string();
 
         const auto& config = client_config();
-        const auto& client_cred = config.credentials();
         const auto& proxy = config.proxy();
-        const auto& proxy_cred = proxy.credentials();
         if (!proxy.is_default())
         {
             request->report_exception(http_exception(L"Only a default proxy server is supported"));
@@ -440,19 +438,6 @@ protected:
             const utility::char_t* password = nullptr;
             const utility::char_t* proxy_password = nullptr;
             ::web::details::plaintext_string password_plaintext, proxy_password_plaintext;
-
-            if (client_cred.is_set())
-            {
-                username = client_cred.username();
-                password_plaintext = client_cred._internal_decrypt();
-                password = password_plaintext->c_str();
-            }
-            if (proxy_cred.is_set())
-            {
-                proxy_username = proxy_cred.username();
-                proxy_password_plaintext = proxy_cred._internal_decrypt();
-                proxy_password = proxy_password_plaintext->c_str();
-            }
 
             hr = winrt_context->m_hRequest->Open(msg.method().c_str(),
                                                  encoded_resource.c_str(),

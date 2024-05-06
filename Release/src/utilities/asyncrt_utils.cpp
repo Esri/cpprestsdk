@@ -239,13 +239,13 @@ std::string windows_category_impl::message(int errorCode) const CPPREST_NOEXCEPT
     DWORD dwFlags = FORMAT_MESSAGE_FROM_SYSTEM;
     LPCVOID lpSource = NULL;
 
-#if !defined(__cplusplus_winrt)
-    if (errorCode >= 12000)
-    {
-        dwFlags = FORMAT_MESSAGE_FROM_HMODULE;
-        lpSource = GetModuleHandleA("winhttp.dll"); // this handle DOES NOT need to be freed
-    }
-#endif
+//#if !defined(__cplusplus_winrt)
+//    if (errorCode >= 12000)
+//    {
+//        dwFlags = FORMAT_MESSAGE_FROM_HMODULE;
+//        lpSource = GetModuleHandleA("winhttp.dll"); // this handle DOES NOT need to be freed
+//    }
+//#endif
 
     std::wstring buffer(buffer_size, 0);
 
@@ -274,11 +274,11 @@ std::error_condition windows_category_impl::default_error_condition(int errorCod
 
     switch (errorCode)
     {
-#ifndef __cplusplus_winrt
-        case ERROR_WINHTTP_TIMEOUT: return std::errc::timed_out;
-        case ERROR_WINHTTP_CANNOT_CONNECT: return std::errc::host_unreachable;
-        case ERROR_WINHTTP_CONNECTION_ERROR: return std::errc::connection_aborted;
-#endif
+//#ifndef __cplusplus_winrt
+//        case ERROR_WINHTTP_TIMEOUT: return std::errc::timed_out;
+//        case ERROR_WINHTTP_CANNOT_CONNECT: return std::errc::host_unreachable;
+//        case ERROR_WINHTTP_CONNECTION_ERROR: return std::errc::connection_aborted;
+//#endif
         case INET_E_RESOURCE_NOT_FOUND:
         case INET_E_CANNOT_CONNECT: return std::errc::host_unreachable;
         case INET_E_CONNECTION_TIMEOUT: return std::errc::timed_out;

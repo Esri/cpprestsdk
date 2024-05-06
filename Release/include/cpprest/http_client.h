@@ -15,7 +15,7 @@
 #ifndef CASA_HTTP_CLIENT_H
 #define CASA_HTTP_CLIENT_H
 
-#if defined(__cplusplus_winrt)
+#if defined(_WIN32)
 #if !defined(__WRL_NO_DEFAULT_LIB__)
 #define __WRL_NO_DEFAULT_LIB__
 #endif
@@ -80,7 +80,6 @@ namespace client
 // credentials and web_proxy class has been moved from web::http::client namespace to web namespace.
 // The below using declarations ensure we don't break existing code.
 // Please use the web::credentials and web::web_proxy class going forward.
-using web::credentials;
 using web::web_proxy;
 
 /// <summary>
@@ -150,18 +149,6 @@ public:
     /// </summary>
     /// <param name="proxy">A reference to the web proxy object.</param>
     void set_proxy(web_proxy proxy) { m_proxy = std::move(proxy); }
-
-    /// <summary>
-    /// Get the client credentials
-    /// </summary>
-    /// <returns>A reference to the client credentials.</returns>
-    const http::client::credentials& credentials() const { return m_credentials; }
-
-    /// <summary>
-    /// Set the client credentials
-    /// </summary>
-    /// <param name="cred">A reference to the client credentials.</param>
-    void set_credentials(const http::client::credentials& cred) { m_credentials = cred; }
 
     /// <summary>
     /// Get the 'guarantee order' property
@@ -366,7 +353,6 @@ private:
 
     std::shared_ptr<oauth2::experimental::oauth2_config> m_oauth2;
     web_proxy m_proxy;
-    http::client::credentials m_credentials;
     // Whether or not to guarantee ordering, i.e. only using one underlying TCP connection.
     bool m_guarantee_order;
 

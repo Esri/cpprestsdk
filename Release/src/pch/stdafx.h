@@ -41,10 +41,10 @@
 #include <windows.h>
 
 // Windows Header Files:
-#if !defined(__cplusplus_winrt)
-#include <winhttp.h>
+//#if !defined(__cplusplus_winrt)
+//#include <winhttp.h>
 
-#endif // #if !defined(__cplusplus_winrt)
+//#endif // #if !defined(__cplusplus_winrt)
 #else  // LINUX or APPLE
 #define __STDC_LIMIT_MACROS
 #include "pthread.h"
