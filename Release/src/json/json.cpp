@@ -30,6 +30,16 @@ utility::istream_t& web::json::operator>>(utility::istream_t& is, json::value& v
     return is;
 }
 
+web::json::value::~value() = default;
+
+#ifdef ENABLE_JSON_VALUE_VISUALIZER
+web::json::value::value(std::unique_ptr<details::_Value> v, value_type kind) : m_value(std::move(v)), m_kind(kind)
+#else
+web::json::value::value(std::unique_ptr<details::_Value> v) : m_value(std::move(v))
+#endif
+{
+}
+
 web::json::value::value()
     : m_value(utility::details::make_unique<web::json::details::_Null>())
 #ifdef ENABLE_JSON_VALUE_VISUALIZER
